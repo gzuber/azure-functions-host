@@ -293,7 +293,10 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                 var previousHost = _host;
                 _host = null;
                 Task startTask = StartAsync(cancellationToken);
-                Task stopTask = Orphan(previousHost, _logger, cancellationToken);
+
+                // stopTask is delayed for few seconds so that it does not interfere with cold start.
+                // this is specially important for consumption plan which everything runs on a single core.
+                Task stopTask = Task.Delay(ScriptConstants.FireAndForgetDelayMilliseconds).ContinueWith(_ => Orphan(previousHost, _logger, cancellationToken));
 
                 await startTask;
 

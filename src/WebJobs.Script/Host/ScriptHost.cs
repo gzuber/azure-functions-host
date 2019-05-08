@@ -522,7 +522,8 @@ namespace Microsoft.Azure.WebJobs.Script
             {
                 // initiate the cleanup in a background task so we don't
                 // delay startup
-                Task.Run(() => PurgeOldLogDirectories());
+                // this task is delayed for few seconds so that it does not interfere with cold start.
+                Task.Run(() => Task.Delay(ScriptConstants.FireAndForgetDelayMilliseconds).ContinueWith(_ => PurgeOldLogDirectories()));
             }
         }
 
