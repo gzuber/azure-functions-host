@@ -177,5 +177,10 @@ namespace Microsoft.Azure.WebJobs.Script
             var mountEnabled = environment.GetEnvironmentVariable(MountEnabled);
             return !string.IsNullOrEmpty(mountEnabled) && string.Equals(mountEnabled, "1");
         }
+
+        public static string GetKubernetesApiServerUrl(this IEnvironment environment)
+        {
+            return $"https://{environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST")}:{environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT_HTTPS")}";
+        }
     }
 }
