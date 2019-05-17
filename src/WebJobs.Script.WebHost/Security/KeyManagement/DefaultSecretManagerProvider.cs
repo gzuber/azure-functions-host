@@ -68,7 +68,6 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
             }
             else if (secretStorageType != null && secretStorageType.Equals("kubernetes", StringComparison.OrdinalIgnoreCase))
             {
-                var secretName = Environment.GetEnvironmentVariable(EnvironmentSettingNames.AzureWebJobsKubernetesSecretName);
                 return new KubernetesSecretsRepository(_environment, new SimpleKubernetesClient(_environment));
             }
             else if (storageString == null)
