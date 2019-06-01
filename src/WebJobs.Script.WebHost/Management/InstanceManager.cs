@@ -262,69 +262,113 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
 
         private void UnpackPackage(string filePath, string scriptPath)
         {
-            if (_environment.IsMountEnabled() &&
-                // Only attempt to use FUSE on Linux
-                RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            var packageType = GetPackageType(filePath);
+
+            if (packageType == CodePackageType.Squashfs)
             {
-                using (_metricsLogger.LatencyEvent(MetricEventNames.LinuxContainerSpecializationFuseMount))
+                // default to mount for squashfs images
+                if (_environment.IsMountDisabled())
                 {
-                    if (FileIsAny(".squashfs", ".sfs", ".sqsh", ".img", ".fs"))
-                    {
-                        MountFsImage(filePath, scriptPath);
-                    }
-                    else if (FileIsAny(".zip"))
-                    {
-                        MountZipFile(filePath, scriptPath);
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException($"Can't find Filesystem to match {filePath}");
-                    }
+                    UnsquashImage(filePath, scriptPath);
                 }
+                else
+                {
+                    MountSquashfsImage(filePath, scriptPath);
+                }
+            }
+            else if (packageType == CodePackageType.Zip)
+            {
+                // default to unzip for zip packages
+                if (_environment.IsMountEnabled())
+                {
+                    MountZipFile(filePath, scriptPath);
+                }
+                else
+                {
+                    UnzipPackage(filePath, scriptPath);
+                }
+            }
+        }
+
+        private CodePackageType GetPackageType(string filePath)
+        {
+            // Try checking the file extension
+            if (FileIsAny(".squashfs", ".sfs", ".sqsh", ".img", ".fs"))
+            {
+                return CodePackageType.Squashfs;
+            }
+            else if (FileIsAny(".zip"))
+            {
+                return CodePackageType.Zip;
+            }
+
+            // No file extension match found. Try checking magic number using `file` command.
+            (var output, _, _) = RunBashCommand($"file -b {filePath}", MetricEventNames.LinuxContainerSpecializationFileCommand);
+            if (output.StartsWith("Squashfs", StringComparison.OrdinalIgnoreCase))
+            {
+                return CodePackageType.Squashfs;
+            }
+            else if (output.StartsWith("Zip", StringComparison.OrdinalIgnoreCase))
+            {
+                return CodePackageType.Zip;
             }
             else
             {
-                using (_metricsLogger.LatencyEvent(MetricEventNames.LinuxContainerSpecializationZipExtract))
-                {
-                    _logger.LogInformation($"Extracting files to '{scriptPath}'");
-                    ZipFile.ExtractToDirectory(filePath, scriptPath, overwriteFiles: true);
-                    _logger.LogInformation($"Zip extraction complete");
-                }
+                throw new InvalidOperationException($"Can't find CodePackageType to match {filePath}");
             }
 
             bool FileIsAny(params string[] options)
                 => options.Any(o => filePath.EndsWith(o, StringComparison.OrdinalIgnoreCase));
         }
 
-        private void MountFsImage(string filePath, string scriptPath)
+        private void UnzipPackage(string filePath, string scriptPath)
+        {
+            using (_metricsLogger.LatencyEvent(MetricEventNames.LinuxContainerSpecializationZipExtract))
+            {
+                _logger.LogInformation($"Extracting files to '{scriptPath}'");
+                ZipFile.ExtractToDirectory(filePath, scriptPath, overwriteFiles: true);
+                _logger.LogInformation($"Zip extraction complete");
+            }
+        }
+
+        private void UnsquashImage(string filePath, string scriptPath)
+            => RunBashCommand($"unsquashfs -f -d '{scriptPath}' '{filePath}'", MetricEventNames.LinuxContainerSpecializationUnsquash);
+
+        private void MountSquashfsImage(string filePath, string scriptPath)
             => RunFuseMount($"squashfuse_ll '{filePath}' '{scriptPath}'", scriptPath);
 
         private void MountZipFile(string filePath, string scriptPath)
             => RunFuseMount($"fuse-zip -r '{filePath}' '{scriptPath}'", scriptPath);
 
         private void RunFuseMount(string mountCommand, string targetPath)
+            => RunBashCommand($"(mknod /dev/fuse c 10 229 || true) && (mkdir -p '{targetPath}' || true) && ({mountCommand})", MetricEventNames.LinuxContainerSpecializationFuseMount);
+
+        private (string, string, int) RunBashCommand(string command, string metricName)
         {
-            var bashCommand = $"(mknod /dev/fuse c 10 229 || true) && (mkdir -p '{targetPath}' || true) && ({mountCommand})";
-            var process = new Process
+            using (_metricsLogger.LatencyEvent(metricName))
             {
-                StartInfo = new ProcessStartInfo
+                var process = new Process
                 {
-                    FileName = "bash",
-                    Arguments = $"-c \"{bashCommand}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            _logger.LogInformation($"Running: {process.StartInfo.FileName} {process.StartInfo.Arguments}");
-            process.Start();
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            _logger.LogInformation($"Output: {output}");
-            _logger.LogInformation($"error: {output}");
-            _logger.LogInformation($"exitCode: {process.ExitCode}");
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "bash",
+                        Arguments = $"-c \"{command}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                };
+                _logger.LogInformation($"Running: {process.StartInfo.FileName} {process.StartInfo.Arguments}");
+                process.Start();
+                var output = process.StandardOutput.ReadToEnd().Trim();
+                var error = process.StandardError.ReadToEnd().Trim();
+                process.WaitForExit();
+                _logger.LogInformation($"Output: {output}");
+                _logger.LogInformation($"error: {output}");
+                _logger.LogInformation($"exitCode: {process.ExitCode}");
+                return (output, error, process.ExitCode);
+            }
         }
 
         public IDictionary<string, string> GetInstanceInfo()
