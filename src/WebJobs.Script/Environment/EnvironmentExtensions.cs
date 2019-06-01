@@ -173,9 +173,9 @@ namespace Microsoft.Azure.WebJobs.Script
         }
 
         public static bool IsMountEnabled(this IEnvironment environment)
-        {
-            var mountEnabled = environment.GetEnvironmentVariable(MountEnabled);
-            return !string.IsNullOrEmpty(mountEnabled) && string.Equals(mountEnabled, "1");
-        }
+            => string.Equals(environment.GetEnvironmentVariable(MountEnabled), "1");
+
+        public static bool IsMountDisabled(this IEnvironment environment)
+            => string.Equals(environment.GetEnvironmentVariable(MountEnabled), "0");
     }
 }
