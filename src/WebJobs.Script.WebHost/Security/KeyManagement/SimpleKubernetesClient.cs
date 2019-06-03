@@ -223,7 +223,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
 
         private static async Task<IDictionary<string, string>> GetFromFiles(string path)
         {
-            var files = await FileUtility.GetFilesAsync(path, "*");
+            string[] files = await FileUtility.GetFilesAsync(path, "*");
             var secrets = new Dictionary<string, string>(files.Length);
             foreach (var file in files)
             {
