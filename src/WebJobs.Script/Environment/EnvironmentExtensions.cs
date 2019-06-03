@@ -180,7 +180,15 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public static string GetKubernetesApiServerUrl(this IEnvironment environment)
         {
-            return $"https://{environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST")}:{environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT_HTTPS")}";
+            string host = environment.GetEnvironmentVariable(KubernetesServiceHost);
+            string port = environment.GetEnvironmentVariable(KubernetesServiceHttpsPort);
+
+            if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(port))
+            {
+                throw new InvalidOperationException($"Both {KubernetesServiceHost} and {KubernetesServiceHttpsPort} are required for {nameof(GetKubernetesApiServerUrl)}.");
+            }
+
+            return $"https://{host}:{port}";
         }
     }
 }

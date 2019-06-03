@@ -13,12 +13,13 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Script.IO;
+using Microsoft.Net.Http.Headers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Microsoft.Azure.WebJobs.Script.WebHost
 {
-    public class SimpleKubernetesClient : IKubernetesClient
+    public class SimpleKubernetesClient : IKubernetesClient, IDisposable
     {
         private const string NamespaceFile = "/run/secrets/kubernetes.io/serviceaccount/namespace";
         private const string TokenFile = "/run/secrets/kubernetes.io/serviceaccount/token";
@@ -186,7 +187,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                 isSecret = false;
             }
 
-            var @namespace = await FileUtility.ReadAsync(NamespaceFile);
+            string @namespace = await FileUtility.ReadAsync(NamespaceFile);
             var url = $"{_environment.GetKubernetesApiServerUrl()}/api/v1/";
             if (watchUrl)
             {
@@ -198,17 +199,17 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
 
         private async Task<HttpRequestMessage> GetRequest(HttpMethod method, string url, object payload = null, string contentType = null, bool closeConnection = true)
         {
-            var token = await FileUtility.ReadAsync(TokenFile);
+            string token = await FileUtility.ReadAsync(TokenFile);
             const string jsonContentType = "application/json";
             contentType = contentType ?? jsonContentType;
 
             var request = new HttpRequestMessage(method, url);
-            request.Headers.Add("Authorization", $"Bearer {token}");
-            request.Headers.Add("Accept", jsonContentType);
+            request.Headers.Add(HeaderNames.Authorization, $"Bearer {token}");
+            request.Headers.Add(HeaderNames.Accept, jsonContentType);
 
             if (closeConnection)
             {
-                request.Headers.Add("Connection", "close");
+                request.Headers.Add(HeaderNames.Connection, "close");
             }
 
             if (payload != null)
@@ -238,7 +239,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                 ServerCertificateCustomValidationCallback = ServerCertificateValidationCallback
             });
 
-            client.DefaultRequestHeaders.Add("User-Agent", ScriptConstants.HostUserAgent);
+            client.DefaultRequestHeaders.Add(HeaderNames.UserAgent, ScriptConstants.HostUserAgent);
             return client;
         }
 
@@ -259,30 +260,37 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
                 // api-server cert must exist and have the right subject
                 return false;
             }
-
-            // only remaining error state is RemoteCertificateChainErrors
-            // check custom CA
-            var privateChain = new X509Chain();
-            privateChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
-
-            var caCert = new X509Certificate2(CaFile);
-            // https://docs.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509chainpolicy?view=netcore-2.2
-            // Add CA cert to the chain store to include it in the chain check.
-            privateChain.ChainPolicy.ExtraStore.Add(caCert);
-            // Build the chain for `certificate` which should be the self-signed kubernetes api-server cert.
-            privateChain.Build(certificate);
-
-            foreach (X509ChainStatus chainStatus in privateChain.ChainStatus)
+            else if (sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors)
             {
-                if (chainStatus.Status != X509ChainStatusFlags.NoError &&
-                    // root CA cert is not always trusted.
-                    chainStatus.Status != X509ChainStatusFlags.UntrustedRoot)
-                {
-                    return false;
-                }
-            }
+                // only remaining error state is RemoteCertificateChainErrors
+                // check custom CA
+                var privateChain = new X509Chain();
+                privateChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
 
-            return true;
+                var caCert = new X509Certificate2(CaFile);
+                // https://docs.microsoft.com/en-us/dotnet/api/system.security.cryptography.x509certificates.x509chainpolicy?view=netcore-2.2
+                // Add CA cert to the chain store to include it in the chain check.
+                privateChain.ChainPolicy.ExtraStore.Add(caCert);
+                // Build the chain for `certificate` which should be the self-signed kubernetes api-server cert.
+                privateChain.Build(certificate);
+
+                foreach (X509ChainStatus chainStatus in privateChain.ChainStatus)
+                {
+                    if (chainStatus.Status != X509ChainStatusFlags.NoError &&
+                        // root CA cert is not always trusted.
+                        chainStatus.Status != X509ChainStatusFlags.UntrustedRoot)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+            else
+            {
+                // Unknown sslPolicyErrors
+                return false;
+            }
         }
 
         private void Dispose(bool disposing)

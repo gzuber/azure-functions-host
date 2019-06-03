@@ -60,5 +60,8 @@ namespace Microsoft.Azure.WebJobs.Script
 
         public const string ExtensionBundleSourceUri = "FUNCTIONS_EXTENSIONBUNDLE_SOURCE_URI";
         public const string AzureWebJobsKubernetesSecretName = "AzureWebJobsKubernetesSecretName";
+
+        public const string KubernetesServiceHost = "KUBERNETES_SERVICE_HOST";
+        public const string KubernetesServiceHttpsPort = "KUBERNETES_SERVICE_PORT_HTTPS";
     }
 }

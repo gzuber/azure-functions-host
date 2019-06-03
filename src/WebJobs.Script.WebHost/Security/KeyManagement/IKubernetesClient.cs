@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Microsoft.Azure.WebJobs.Script.WebHost
 {
-    public interface IKubernetesClient : IDisposable
+    public interface IKubernetesClient
     {
         bool IsWritable { get; }
 
