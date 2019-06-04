@@ -16,6 +16,8 @@ using Microsoft.Azure.WebJobs.Script.WebHost.Configuration;
 using Microsoft.Azure.WebJobs.Script.WebHost.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.File;
 using Newtonsoft.Json;
 
 namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
@@ -122,16 +124,34 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
             }
         }
 
-        public async Task<string> ValidateContext(HostAssignmentContext assignmentContext)
+        public Task<string> ValidateContext(HostAssignmentContext assignmentContext)
         {
             _logger.LogInformation($"Validating host assignment context (SiteId: {assignmentContext.SiteId}, SiteName: '{assignmentContext.SiteName}')");
+            // In AppService, ZipUrl == 1 means the package is hosted in azure files.
+            // Otherwise we expect zipUrl to be a blobUri to a zip or a squashfs image
+            if (!string.IsNullOrEmpty(assignmentContext.ZipUrl) && assignmentContext.ZipUrl != "1")
+            {
+                return ValidateBlobPackageContext(assignmentContext.ZipUrl);
+            }
+            else if (!string.IsNullOrEmpty(assignmentContext.AzureFilesConnectionString))
+            {
+                return ValidateAzureFilesContext(assignmentContext.AzureFilesConnectionString, assignmentContext.AzureFilesContentShare);
+            }
+            else
+            {
+                var error = $"Missing ZipUrl and AzureFiles. {nameof(ValidateContext)}";
+                _logger.LogError(error);
+                return Task.FromResult(error);
+            }
+        }
 
+        private async Task<string> ValidateBlobPackageContext(string blobUri)
+        {
             string error = null;
             HttpResponseMessage response = null;
             try
             {
-                var zipUrl = assignmentContext.ZipUrl;
-                if (!string.IsNullOrEmpty(zipUrl))
+                if (!string.IsNullOrEmpty(blobUri))
                 {
                     // make sure the zip uri is valid and accessible
                     await Utility.InvokeWithRetriesAsync(async () =>
@@ -140,7 +160,7 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
                         {
                             using (_metricsLogger.LatencyEvent(MetricEventNames.LinuxContainerSpecializationZipHead))
                             {
-                                var request = new HttpRequestMessage(HttpMethod.Head, zipUrl);
+                                var request = new HttpRequestMessage(HttpMethod.Head, blobUri);
                                 response = await _client.SendAsync(request);
                                 response.EnsureSuccessStatusCode();
                             }
@@ -160,6 +180,23 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
             }
 
             return error;
+        }
+
+        private async Task<string> ValidateAzureFilesContext(string connectionString, string contentShare)
+        {
+            try
+            {
+                var storageAccount = CloudStorageAccount.Parse(connectionString);
+                var fileClient = storageAccount.CreateCloudFileClient();
+                var share = fileClient.GetShareReference(contentShare);
+                await share.CreateIfNotExistsAsync();
+                return null;
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, $"{nameof(ValidateAzureFilesContext)}");
+                return e.Message;
+            }
         }
 
         private async Task Assign(HostAssignmentContext assignmentContext)
@@ -197,19 +234,36 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
             // This asks the factory to skip the PlaceholderMode check when configuring options.
             var options = _optionsFactory.Create(ScriptApplicationHostOptionsSetup.SkipPlaceholder);
 
-            var zipPath = assignmentContext.ZipUrl;
-            if (!string.IsNullOrEmpty(zipPath))
+            if (!string.IsNullOrEmpty(assignmentContext.ZipUrl) && assignmentContext.ZipUrl != "1")
             {
-                // download zip and extract
-                var zipUri = new Uri(zipPath);
-                var filePath = await DownloadAsync(zipUri);
-                UnpackPackage(filePath, options.ScriptPath);
+                await ApplyBlobPackageContext(assignmentContext.ZipUrl, options.ScriptPath);
+            }
+            else if (!string.IsNullOrEmpty(assignmentContext.AzureFilesConnectionString))
+            {
+                ApplyAzureFilesContext(assignmentContext.AzureFilesConnectionString, assignmentContext.AzureFilesContentShare, options.ScriptPath);
+            }
+        }
 
-                string bundlePath = Path.Combine(options.ScriptPath, "worker-bundle");
-                if (Directory.Exists(bundlePath))
-                {
-                    _logger.LogInformation($"Python worker bundle detected");
-                }
+        private void ApplyAzureFilesContext(string connectionString, string contentShare, string targetPath)
+        {
+            var sa = CloudStorageAccount.Parse(connectionString);
+            var key = Convert.ToBase64String(sa.Credentials.ExportKey());
+
+            var mountCommand = $"mount -t cifs //{sa.FileEndpoint.Host}/{contentShare} {targetPath} -o vers=3.0,username={sa.Credentials.AccountName},password={key},dir_mode=0777,file_mode=0777,serverino";
+            RunBashCommand($"(mkdir -p {targetPath} || true) && ({mountCommand})", MetricEventNames.LinuxContainerSpecializationAzureFilesMount);
+        }
+
+        private async Task ApplyBlobPackageContext(string blobUrl, string targetPath)
+        {
+            // download zip and extract
+            var blobUri = new Uri(blobUrl);
+            var filePath = await DownloadAsync(blobUri);
+            UnpackPackage(filePath, targetPath);
+
+            string bundlePath = Path.Combine(targetPath, "worker-bundle");
+            if (Directory.Exists(bundlePath))
+            {
+                _logger.LogInformation($"Python worker bundle detected");
             }
         }
 
@@ -365,7 +419,14 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Management
                 var error = process.StandardError.ReadToEnd().Trim();
                 process.WaitForExit();
                 _logger.LogInformation($"Output: {output}");
-                _logger.LogInformation($"error: {output}");
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError(error);
+                }
+                else
+                {
+                    _logger.LogInformation($"error: {error}");
+                }
                 _logger.LogInformation($"exitCode: {process.ExitCode}");
                 return (output, error, process.ExitCode);
             }

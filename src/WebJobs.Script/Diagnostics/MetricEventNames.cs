@@ -47,5 +47,6 @@ namespace Microsoft.Azure.WebJobs.Script.Diagnostics
         public const string LinuxContainerSpecializationMSIInit = "linux.container.specialization.msi.init";
         public const string LinuxContainerSpecializationUnsquash = "linux.container.specialization.unsquash";
         public const string LinuxContainerSpecializationFileCommand = "linux.container.specialization.file.command";
+        public const string LinuxContainerSpecializationAzureFilesMount = "linux.container.specialization.azure.files.mount";
     }
 }
