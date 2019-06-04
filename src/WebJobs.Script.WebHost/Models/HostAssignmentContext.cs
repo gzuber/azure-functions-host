@@ -47,6 +47,17 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost.Models
             }
         }
 
+        public string AzureFilesConnectionString
+            => Environment.ContainsKey(EnvironmentSettingNames.AzureFilesConnectionString)
+                ? Environment[EnvironmentSettingNames.AzureFilesConnectionString]
+                : string.Empty;
+
+        public string AzureFilesContentShare
+            => Environment.ContainsKey(EnvironmentSettingNames.AzureFilesContentShare)
+                && !string.IsNullOrEmpty(Environment[EnvironmentSettingNames.AzureFilesContentShare])
+                ? Environment[EnvironmentSettingNames.AzureFilesContentShare]
+                : SiteName;
+
         public bool IsMSIEnabled(out string endpoint)
         {
             endpoint = null;
