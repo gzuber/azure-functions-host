@@ -15,8 +15,12 @@ namespace Microsoft.Azure.WebJobs.Script
     /// </summary>
     internal class ScriptTelemetryClientFactory : DefaultTelemetryClientFactory
     {
-        public ScriptTelemetryClientFactory(string instrumentationKey, SamplingPercentageEstimatorSettings samplingSettings, Func<string, LogLevel, bool> filter)
-            : base(instrumentationKey, samplingSettings, filter)
+        public ScriptTelemetryClientFactory(
+            string instrumentationKey,
+            string connectionString,
+            SamplingPercentageEstimatorSettings samplingSettings,
+            Func<string, LogLevel, bool> filter)
+            : base(instrumentationKey, connectionString, samplingSettings, filter)
         {
         }
 

@@ -299,10 +299,14 @@ namespace Microsoft.Azure.WebJobs.Script.WebHost
         private ILoggerFactory CreateDefaultLoggerFactory(WebHostSettings settings)
         {
             var loggerFactory = new LoggerFactory();
-            if (!string.IsNullOrEmpty(_settingsManager.ApplicationInsightsInstrumentationKey))
+            if (!string.IsNullOrEmpty(_settingsManager.ApplicationInsightsInstrumentationKey) || !string.IsNullOrEmpty(_settingsManager.ApplicationInsightsConnectionString))
             {
                 var config = GetScriptHostConfiguration(settings);
-                var clientFactory = new ScriptTelemetryClientFactory(_settingsManager.ApplicationInsightsInstrumentationKey, config.ApplicationInsightsSamplingSettings, config.LogFilter.Filter);
+                var clientFactory = new ScriptTelemetryClientFactory(
+                                            _settingsManager.ApplicationInsightsInstrumentationKey,
+                                            _settingsManager.ApplicationInsightsConnectionString,
+                                            config.ApplicationInsightsSamplingSettings,
+                                            config.LogFilter.Filter);
                 loggerFactory.AddApplicationInsights(clientFactory);
             }
 

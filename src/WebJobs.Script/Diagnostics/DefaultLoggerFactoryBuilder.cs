@@ -22,13 +22,17 @@ namespace Microsoft.Azure.WebJobs.Script
         {
             IMetricsLogger metricsLogger = scriptConfig.HostConfig.GetService<IMetricsLogger>();
 
-            // Automatically register App Insights if the key is present
-            if (!string.IsNullOrEmpty(settingsManager?.ApplicationInsightsInstrumentationKey))
+            // Automatically register App Insights if the key or connection string is present
+            if (!string.IsNullOrEmpty(settingsManager?.ApplicationInsightsInstrumentationKey) || !string.IsNullOrEmpty(settingsManager?.ApplicationInsightsConnectionString))
             {
                 metricsLogger?.LogEvent(MetricEventNames.ApplicationInsightsEnabled);
 
                 ITelemetryClientFactory clientFactory = scriptConfig.HostConfig.GetService<ITelemetryClientFactory>() ??
-                    new ScriptTelemetryClientFactory(settingsManager.ApplicationInsightsInstrumentationKey, scriptConfig.ApplicationInsightsSamplingSettings, scriptConfig.LogFilter.Filter);
+                    new ScriptTelemetryClientFactory(
+                            settingsManager.ApplicationInsightsInstrumentationKey,
+                            settingsManager.ApplicationInsightsConnectionString,
+                            scriptConfig.ApplicationInsightsSamplingSettings,
+                            scriptConfig.LogFilter.Filter);
 
                 scriptConfig.HostConfig.LoggerFactory.AddApplicationInsights(clientFactory);
             }
